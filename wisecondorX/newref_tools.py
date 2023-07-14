@@ -17,7 +17,6 @@ and one for females. The local minimum will
 serve as the cut-off point.
 '''
 
-
 def train_gender_model(args, samples):
     genders = np.empty(len(samples), dtype='object')
     y_fractions = []

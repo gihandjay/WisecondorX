@@ -5,7 +5,8 @@ import logging
 import os
 import sys
 import warnings
-
+import csv
+import csv
 import numpy as np
 
 from wisecondorX.convert_tools import convert_reads
@@ -29,6 +30,97 @@ def tool_convert(args):
     logging.info('Finished conversion')
 
 
+# #original code
+# def tool_newref(args):
+#     logging.info('Creating new reference')
+
+#     if args.yfrac is not None:
+#         if args.yfrac < 0 or args.yfrac > 1:
+#             logging.critical(
+#                 'Parameter --yfrac should be a positive number lower than or equal to 1')
+#             sys.exit()
+
+#     split_path = list(os.path.split(args.outfile))
+#     if split_path[-1][-4:] == '.npz':
+#         split_path[-1] = split_path[-1][:-4]
+#     base_path = os.path.join(split_path[0], split_path[1])
+
+#     args.basepath = base_path
+#     args.prepfile = '{}_prep.npz'.format(base_path)
+#     args.partfile = '{}_part'.format(base_path)
+
+#     samples = []
+#     logging.info('Importing data ...')
+#     for infile in args.infiles:
+#         logging.info('Loading: {}'.format(infile))
+#         npzdata = np.load(infile, encoding='latin1', allow_pickle=True)
+#         #npz has ['binsize', 'sample', 'quality']
+#         sample = npzdata['sample'].item()
+#         binsize = int(npzdata['binsize'])
+#         logging.info('Binsize: {}'.format(int(binsize)))
+#         samples.append(scale_sample(sample, binsize, args.binsize))
+        
+#     samples = np.array(samples)
+#     #logging.info(samples)
+#     genders, trained_cutoff = train_gender_model(args, samples)
+
+#     if genders.count('F') < 5 and args.nipt:
+#         logging.warning(
+#             'A NIPT reference should have at least 5 female feti samples. Removing --nipt flag.')
+#         args.nipt = False
+#     if not args.nipt:
+#         for i, sample in enumerate(samples):
+#             samples[i] = gender_correct(sample, genders[i])
+
+#     total_mask, bins_per_chr = get_mask(samples)
+#     if genders.count('F') > 4:
+#         mask_F, _ = get_mask(samples[np.array(genders) == 'F'])
+#         total_mask = total_mask & mask_F
+#     if genders.count('M') > 4 and not args.nipt:
+#         mask_M, _ = get_mask(samples[np.array(genders) == 'M'])
+#         total_mask = total_mask & mask_M
+
+#     outfiles = []
+#     if len(genders) > 9:
+#         logging.info('Starting autosomal reference creation ...')
+#         args.tmpoutfile = '{}.tmp.A.npz'.format(args.basepath)
+#         outfiles.append(args.tmpoutfile)
+#         tool_newref_prep(args, samples, 'A', total_mask, bins_per_chr)
+#         logging.info('This might take a while ...')
+#         tool_newref_main(args, args.cpus)
+#     else:
+#         logging.critical(
+#             'Provide at least 10 samples to enable the generation of a reference.')
+#         sys.exit()
+
+#     if genders.count('F') > 4:
+#         logging.info('Starting female gonosomal reference creation ...')
+#         args.tmpoutfile = '{}.tmp.F.npz'.format(args.basepath)
+#         outfiles.append(args.tmpoutfile)
+#         tool_newref_prep(args, samples[np.array(
+#             genders) == 'F'], 'F', total_mask, bins_per_chr)
+#         logging.info('This might take a while ...')
+#         tool_newref_main(args, 1)
+#     else:
+#         logging.warning(
+#             'Provide at least 5 female samples to enable normalization of female gonosomes.')
+
+#     if not args.nipt:
+#         if genders.count('M') > 4:
+#             logging.info('Starting male gonosomal reference creation ...')
+#             args.tmpoutfile = '{}.tmp.M.npz'.format(args.basepath)
+#             outfiles.append(args.tmpoutfile)
+#             tool_newref_prep(args, samples[np.array(
+#                 genders) == 'M'], 'M', total_mask, bins_per_chr)
+#             tool_newref_main(args, 1)
+#         else:
+#             logging.warning(
+#                 'Provide at least 5 male samples to enable normalization of male gonosomes.')
+
+#     tool_newref_merge(args, outfiles, trained_cutoff)
+
+#     logging.info('Finished creating reference')
+
 def tool_newref(args):
     logging.info('Creating new reference')
 
@@ -48,17 +140,74 @@ def tool_newref(args):
     args.partfile = '{}_part'.format(base_path)
 
     samples = []
-    logging.info('Importing data ...')
-    for infile in args.infiles:
-        logging.info('Loading: {}'.format(infile))
-        npzdata = np.load(infile, encoding='latin1', allow_pickle=True)
-        sample = npzdata['sample'].item()
-        binsize = int(npzdata['binsize'])
-        logging.info('Binsize: {}'.format(int(binsize)))
-        samples.append(scale_sample(sample, binsize, args.binsize))
+    genders = []
+#     logging.info('Importing data ...')
+#     for infile in args.infiles:
+#         logging.info('Loading: {}'.format(infile))
+#         npzdata = np.load(infile, encoding='latin1', allow_pickle=True)
+#         #npz has ['binsize', 'sample', 'quality']
+#         sample = npzdata['sample'].item()
+#         binsize = int(npzdata['binsize'])
+#         logging.info('Binsize: {}'.format(int(binsize)))
+#         samples.append(scale_sample(sample, binsize, args.binsize))
+      
 
-    samples = np.array(samples)
-    genders, trained_cutoff = train_gender_model(args, samples)
+    if args.gender_file is not None:
+        logging.info('Importing data with manual sex assignment ...')
+        # Load the CSV file with npz file names and gender information into a dictionary
+        gender_dict = {}
+        # with open(args.gender_file, 'r') as f: 
+        #     reader = csv.reader(f) 
+        #     for row in reader: 
+        #         gender_dict[row[0]] = row[1]
+        with open(args.gender_file, 'r') as f:
+            # use Sniffer to detect the delimiter
+            dialect = csv.Sniffer().sniff(f.readline())
+            f.seek(0)
+            
+            # create a reader with the detected dialect
+            reader = csv.reader(f, dialect)
+            
+            # process the rows
+            for row in reader:
+                gender_dict[row[0]] = row[1]
+
+        # Append gende  rs list with gender information matching npz file name from the dictionary
+        for infile in args.infiles:
+            logging.info('Loading: {}'.format(infile))
+            npzdata = np.load(infile, encoding='latin1', allow_pickle=True)
+            #npz has ['binsize', 'sample', 'quality']
+            sample = npzdata['sample'].item()
+            binsize = int(npzdata['binsize'])
+            logging.info('Binsize: {}'.format(int(binsize)))
+            sample_name = os.path.basename(infile)
+            sample_name = os.path.splitext(sample_name)[0]
+            if sample_name in gender_dict:
+                gender = gender_dict[sample_name]
+            else:
+                gender = None
+                logging.critical('gender information not found in manual gender specification file for the sample: {}'.format(sample_name))
+                sys.exit()
+            genders.append(gender)
+            samples.append(scale_sample(sample, binsize, args.binsize))
+            trained_cutoff = None
+        samples = np.array(samples)
+
+    else:
+        logging.info('Importing data ...')
+        for infile in args.infiles:
+            logging.info('Loading: {}'.format(infile))
+            npzdata = np.load(infile, encoding='latin1', allow_pickle=True)
+            #npz has ['binsize', 'sample', 'quality']
+            sample = npzdata['sample'].item()
+            binsize = int(npzdata['binsize'])
+            logging.info('Binsize: {}'.format(int(binsize)))
+            samples.append(scale_sample(sample, binsize, args.binsize))
+            
+        samples = np.array(samples)
+        #logging.info(samples)
+        genders, trained_cutoff = train_gender_model(args, samples)
+    
 
     if genders.count('F') < 5 and args.nipt:
         logging.warning(
@@ -117,7 +266,6 @@ def tool_newref(args):
 
     logging.info('Finished creating reference')
 
-
 def tool_test(args):
     logging.info('Starting CNA prediction')
 
@@ -151,17 +299,53 @@ def tool_test(args):
 
     sample = scale_sample(sample, int(
         sample_file['binsize'].item()), int(ref_file['binsize']))
+    #logging.info(ref_file['trained_cutoff'])
 
-    gender = predict_gender(sample, ref_file['trained_cutoff'])
-    if not ref_file['is_nipt']:
-        if args.gender:
-            gender = args.gender
-        sample = gender_correct(sample, gender)
-        ref_gender = gender
+    if not np.issubdtype(ref_file['trained_cutoff'].dtype, np.float):
+        predictedsex_dict = {}
+        with open('output_dir/tables/halimede.tsv', 'r') as f: 
+            # use Sniffer to detect the delimiter
+            dialect = csv.Sniffer().sniff(f.readline())
+            f.seek(0)
+            
+            # create a reader with the detected dialect
+            reader = csv.reader(f, dialect)
+            
+            # process the rows
+            for row in reader:
+                predictedsex_dict[row[0]] = row[1]
+
+        sample_name = os.path.basename(args.infile)
+        sample_name = os.path.splitext(sample_name)[0]
+        
+        if sample_name in predictedsex_dict:
+            gender = predictedsex_dict[sample_name]
+        else:
+            gender = None
+            logging.warning('gender information not found in manual gender specification file for the sample: {}'.format(sample_name))
+       
+        if not ref_file['is_nipt']:
+            if args.gender:
+                gender = args.gender
+            sample = gender_correct(sample, gender)
+            ref_gender = gender
+        else:
+            if args.gender:
+                gender = args.gender
+            ref_gender = gender #original: 'F' - Reason? XY are normalized later
+
+
     else:
-        if args.gender:
-            gender = args.gender
-        ref_gender = 'F'
+        gender = predict_gender(sample, ref_file['trained_cutoff'])
+        if not ref_file['is_nipt']:
+            if args.gender:
+                gender = args.gender
+            sample = gender_correct(sample, gender)
+            ref_gender = gender
+        else:
+            if args.gender:
+                gender = args.gender
+            ref_gender = 'F'
 
     logging.info('Normalizing autosomes ...')
 
@@ -328,6 +512,10 @@ def main():
                                type=int,
                                default=1,
                                help='Use multiple cores to find reference bins')
+    # new arg for manual setting of gender
+    parser_newref.add_argument('--gender_file',
+                         type=str,
+                         help='Path to a file containing manual gender assignments')
     parser_newref.set_defaults(func=tool_newref)
 
     parser_gender = subparsers.add_parser('gender',
@@ -340,6 +528,10 @@ def main():
     parser_gender.add_argument('reference',
                                type=str,
                                help='Reference .npz, as previously created with newref')
+    # new arg for manual setting of gender
+    parser_gender.add_argument('--gender_file',
+                         type=str,
+                         help='Path to a file containing manual gender assignments')
     parser_gender.set_defaults(func=output_gender)
 
     parser_test = subparsers.add_parser('predict',
